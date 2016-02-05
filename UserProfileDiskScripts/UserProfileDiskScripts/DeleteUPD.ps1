@@ -124,7 +124,7 @@ Try
 
 			foreach ($regKey in $RegKeysFound)
 			{
-				WriteToLog -LogPath $LogDirPath -TextValue "Following registry key will be deleted: $regKey" -WriteError $false
+				WriteToLog -LogPath $LogDirPath -TextValue "Following registry key will be deleted on RDS session host $($RDSSessoinHost.SessionHost): $regKey" -WriteError $false
 			}
 		}
 	}
@@ -144,35 +144,29 @@ Try
 
 		Foreach ($RDSSessionHost in $RDSSessionHosts)
 		{
-			$WMIGetVolumes = Get-WmiObject Win32_Volume -ComputerName $RDSSessionHost.SessionHost | ? Label -eq "User Disk" | select-object Name, Label
-
-			foreach ($volume in $WMIGetVolumes)
+			if (Dismount-DiskImage -ImagePath "$($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx" -ErrorAction SilentlyContinue)
 			{
-				if ($volume.Label -eq "User Disk")
-				{
-					if ($volume.Name -like "\\?\Volume{*")
-					{
-						#get disk number associated with this volume
-						$diskInfo = get-volume -CimSession $RDSSessionHost.SessionHost | ? Path -eq $($volume.Name) | Get-Partition | Get-Disk | Select-Object Number
-						$DiskObject = New-Object PSObject
-						$DiskObject | Add-Member -MemberType NoteProperty -Name "RDSSessionhostName" -Value $RDSSessionHost.SessionHost
-						$DiskObject | Add-Member -MemberType NoteProperty -Name "DiskID" -Value $diskInfo.Number
-						$DiskIDsToBeRemoved += $DiskObject
-
-						Write-Host "Dismount volume with name $($volume.Name) on RDS Session Host $($RDSSessionHost.SessionHost)" -ForegroundColor Yellow
-						WriteToLog -LogPath $LogDirPath -TextValue "Dismounting volume $($volume.Name) with Disk ID $($DiskObject.DiskID) on RDS Session Host $($RDSSessionHost.SessionHost)"
-						$VolumeToBeDismounted = Get-WmiObject Win32_Volume -ComputerName $RDSSessionHost.SessionHost | ? Name -eq $volume.Name
-						$VolumeToBeDismounted.Dismount($true,$true)
-					}
-				}
+				Write-Host "UPD is successfully detached from RDS session host $($RDSSessionHost.Sessionhost)" -ForegroundColor Yellow
+				WriteToLog -LogPath $LogDirPath -TextValue "UPD is successfully detached from RDS session host $($RDSSessionHost.Sessionhost)" -WriteError $false
+			}
+			else
+			{
+				Write-Host "UPD detach action failed from RDS session host $($RDSSessionHost.Sessionhost). It is possible that the UPD disk was not attached to this RDS session host" -ForegroundColor Yellow
+				WriteToLog -LogPath $LogDirPath -TextValue "UPD detach action failed from RDS session host $($RDSSessionHost.Sessionhost). It is possible that the UPD disk was not attached to this RDS session host" -WriteError $true
 			}
 		}
-
-		Write-Host "Following disks can be detached on the RDS session hosts of collection $($RDSCollection.RDSCollectionName):"
-		$DiskIDsToBeRemoved
-
 		#delete the VHDX on the file server
-		Get-Item -Path "$($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx"
+		Write-Host "Deleting the VHDX file of the UPD ..." -ForegroundColor Yellow
+		if(Get-Item -Path "$($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx" | Remove-Item -Force -ErrorAction SilentlyContinue)
+		{
+			WriteToLog -LogPath $LogDirPath -TextValue "VHDX $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx successfully deleted." -WriteError $false
+			Write-Host "Successfully deleted VHDX" -ForegroundColor Yellow
+		}
+		else
+		{
+			WriteToLog -LogPath $LogDirPath -TextValue "Delete of VHDX $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx failed." -WriteError $true
+			Write-Host "Delete of VHDX failed." -ForegroundColor Red
+		}
     }
 
 	#endregion
