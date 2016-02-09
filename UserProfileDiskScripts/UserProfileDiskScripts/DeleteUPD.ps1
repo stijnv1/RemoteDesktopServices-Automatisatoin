@@ -8,9 +8,6 @@ param
 	[Parameter(Mandatory=$true)]
 	[string]$ADUserUPN,
 
-	[Parameter(Mandatory=$false)]
-	[string]$ConfigParameterCSV = "D:\Sources\Powershell Scripts\UPDScriptConfigParameters.csv",
-
 	[Parameter(Mandatory=$true)]
 	[string]$LogDirPath,
 
@@ -56,8 +53,6 @@ Function WriteToLog
 
 Try
 {
-	#$ConfigParamters = Import-Csv -Path $ConfigParameterCSV -Delimiter ";"
-
 	#region compose selection menu to select correct collection
 	#ask for the correct collection. Each RDS collection has its own dedicated RDS share path to store UPD disks
     #create choice menu to select correct RDS collection
@@ -66,12 +61,6 @@ Try
 	$SelectionMenu = @{}
 
 	Write-Host "`n`nSelect the correct RDS Collection in the menu below:" -ForegroundColor Green
-	#foreach ($RDSCollectionLine in $ConfigParamters)
-	#{
-	#	Write-Host "$RDSCollectionCounter. $($RDSCollectionLine.RDSCollectionName)"
-	#	$SelectionMenu.Add($RDSCollectionCounter,$RDSCollectionLine)
-	#	$RDSCollectionCounter++
-	#}
 	$RDSCollections = Get-RDSessionCollection -ConnectionBroker $RDSConnectionBrokerFQDN
 
 	foreach ($RDSCol in $RDSCollections)
@@ -129,7 +118,7 @@ Try
 			$RegKeys = @()
 			$ProfileListKey = Get-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$userSID*" -ErrorAction SilentlyContinue
 			$ProfileGUIDKeyRoot = Get-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileGuid\*"
-			$ProfileGUIDKey = $ProfileGUIDKeyRoot | Get-ItemProperty -ErrorAction SilentlyContinue | ? SidString -eq $userSID.PSPath
+			$ProfileGUIDKey = ($ProfileGUIDKeyRoot | Get-ItemProperty -ErrorAction SilentlyContinue | ? SidString -eq $userSID).PSPath
 			
 
 			Write-Verbose "`nStart deleting following registry keys:"
