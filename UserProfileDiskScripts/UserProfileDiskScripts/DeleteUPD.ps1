@@ -83,7 +83,7 @@ Try
 
 	#region ask local admin credentials for RDS session hosts
 	Write-Host "--------------------------------------------------------------------------------------------`n"
-	$RDSSessionhostUsername = Read-Host "`nGive the username of a local administrator account of the RDS session hosts"
+	$RDSSessionhostUsername = Read-Host "`n`nGive the username of a local administrator account of the RDS session hosts"
 	$RDSSessionhostPassword = Read-Host "Give the password of the given username" -AsSecureString
 	Write-Host "--------------------------------------------------------------------------------------------`n"
 
@@ -93,13 +93,13 @@ Try
 	#region get user SID. SID is needed to delete correct registry keys on the RDS session hosts of the selected collection
 	if ($aduser = Get-ADUser -Filter {UserPrincipalName -eq $ADUserUPN} -erroraction SilentlyContinue)
 	{
-		WriteToLog -LogPath $LogDirPath -TextValue "User $ADUserUPN is found in Active Directory. Following SID is being used: $($aduser.SID)"
+		WriteToLog -LogPath $LogDirPath -TextValue "`nUser $ADUserUPN is found in Active Directory. Following SID is being used: $($aduser.SID)"
 		Write-Verbose "`nSuccessfully found user $ADUserUPN.`nSID = $($aduser.SID) ..."
 	}
 	else
 	{
 		Write-Host "`nThe specified user cannot be found in Active Directory" -ForegroundColor Red
-		WriteToLog -LogPath $LogDirPath -TextValue "The specified user $ADUserUPN cannot be found in Active Directory" -WriteError $true
+		WriteToLog -LogPath $LogDirPath -TextValue "`n`nThe specified user $ADUserUPN cannot be found in Active Directory" -WriteError $true
 	}
 	#endregion
 
@@ -186,74 +186,77 @@ Try
     #endregion
 
 	#region Optionally, delete the User Profile Disk
-	if (!$OnlyDeleteBakRegistryProfileKeys)
-    {
-        #delete corresponding user profile disk
-		Write-Host "Following UPD will be deleted: $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx" -ForegroundColor Green
-		$diskPath = "$RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx"
-
-		#discover whether UPDs are still mounted on RDS session hosts of the selected collection
-		#if still mounted, but no user profile directory is associated as mount point, these disks can be dismounted
-		#a search is done with the labe user disk and the name of the returned wmi query not equal to a user path
-        
-        $DiskIDsToBeRemoved = @()
-
-		Foreach ($RDSSessionHost in $RDSSessionHosts)
+	if ($aduser)
+	{
+		if (!$OnlyDeleteBakRegistryProfileKeys)
 		{
-			Try
+			#delete corresponding user profile disk
+			Write-Host "Following UPD will be deleted: $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx" -ForegroundColor Green
+			$diskPath = "$RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx"
+
+			#discover whether UPDs are still mounted on RDS session hosts of the selected collection
+			#if still mounted, but no user profile directory is associated as mount point, these disks can be dismounted
+			#a search is done with the labe user disk and the name of the returned wmi query not equal to a user path
+        
+			$DiskIDsToBeRemoved = @()
+
+			Foreach ($RDSSessionHost in $RDSSessionHosts)
 			{
-				$DismountDiskScriptBlock = {
-					param
-					(
-						$RDSUPDSharePath
-					)
-
-					$outputCommand = Dismount-DiskImage -ImagePath $RDSUPDSharePath -PassThru
-					return $outputCommand
-				}
-
-				$outputDismount = Invoke-Command -ComputerName $RDSSessionHost.Sessionhost -ScriptBlock $DismountDiskScriptBlock -ArgumentList $diskPath -Authentication Credssp -Credential $RDSSessionhostCred -ErrorAction Stop
-				if ($outputDismount)
+				Try
 				{
-					Write-Verbose "Dismount on RDS session host $($RDSSessionHost.Sessionhost) was successful"
-					WriteToLog -LogPath $LogDirPath -TextValue "UPD is successfully detached from RDS session host $($RDSSessionHost.Sessionhost)" -WriteError $false
+					$DismountDiskScriptBlock = {
+						param
+						(
+							$RDSUPDSharePath
+						)
+
+						$outputCommand = Dismount-DiskImage -ImagePath $RDSUPDSharePath -PassThru
+						return $outputCommand
+					}
+
+					$outputDismount = Invoke-Command -ComputerName $RDSSessionHost.Sessionhost -ScriptBlock $DismountDiskScriptBlock -ArgumentList $diskPath -Authentication Credssp -Credential $RDSSessionhostCred -ErrorAction Stop
+					if ($outputDismount)
+					{
+						Write-Verbose "Dismount on RDS session host $($RDSSessionHost.Sessionhost) was successful"
+						WriteToLog -LogPath $LogDirPath -TextValue "UPD is successfully detached from RDS session host $($RDSSessionHost.Sessionhost)" -WriteError $false
+					}
+					else
+					{
+						Write-Verbose "UPD detach action failed from RDS session host $($RDSSessionHost.Sessionhost). It is possible that the UPD disk was not attached to this RDS session host"
+						WriteToLog -LogPath $LogDirPath -TextValue "UPD detach action failed from RDS session host $($RDSSessionHost.Sessionhost). It is possible that the UPD disk was not attached to this RDS session host" -WriteError $true
+					}
+				}
+				Catch
+				{
+					$ErrorMessage = $_.Exception.Message
+					WriteToLog -LogPath $LogDirPath -TextValue "Error occured while detaching UPD on session host $($RDSSessionHost.Sessionhost): $ErrorMessage" -WriteError $true
+					Write-Verbose "Error occured while detaching UPD on session host $($RDSSessionHost.Sessionhost): $ErrorMessage"
+				}
+			}
+			#delete the VHDX on the file server
+			Write-Verbose "Deleting the VHDX file of the UPD ..."
+		
+			if ($diskItem = Get-Item -Path "$RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx" -ErrorAction SilentlyContinue)
+			{
+				Remove-Item $diskItem -ErrorAction SilentlyContinue
+				if(!(Test-Path $diskItem))
+				{
+					WriteToLog -LogPath $LogDirPath -TextValue "VHDX $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx successfully deleted." -WriteError $false
+					Write-Host "Successfully deleted VHDX" -ForegroundColor Green
 				}
 				else
 				{
-					Write-Verbose "UPD detach action failed from RDS session host $($RDSSessionHost.Sessionhost). It is possible that the UPD disk was not attached to this RDS session host"
-					WriteToLog -LogPath $LogDirPath -TextValue "UPD detach action failed from RDS session host $($RDSSessionHost.Sessionhost). It is possible that the UPD disk was not attached to this RDS session host" -WriteError $true
+					WriteToLog -LogPath $LogDirPath -TextValue "Delete of VHDX $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx failed." -WriteError $true
+					Write-Host "Delete of VHDX failed." -ForegroundColor Red
 				}
-			}
-			Catch
-			{
-				$ErrorMessage = $_.Exception.Message
-				WriteToLog -LogPath $LogDirPath -TextValue "Error occured while detaching UPD on session host $($RDSSessionHost.Sessionhost): $ErrorMessage" -WriteError $true
-				Write-Verbose "Error occured while detaching UPD on session host $($RDSSessionHost.Sessionhost): $ErrorMessage"
-			}
-		}
-		#delete the VHDX on the file server
-		Write-Verbose "Deleting the VHDX file of the UPD ..."
-		
-		if ($diskItem = Get-Item -Path "$RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx" -ErrorAction SilentlyContinue)
-		{
-			Remove-Item $diskItem -ErrorAction SilentlyContinue
-			if(!(Test-Path $diskItem))
-			{
-				WriteToLog -LogPath $LogDirPath -TextValue "VHDX $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx successfully deleted." -WriteError $false
-				Write-Host "Successfully deleted VHDX" -ForegroundColor Green
 			}
 			else
 			{
-				WriteToLog -LogPath $LogDirPath -TextValue "Delete of VHDX $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx failed." -WriteError $true
-				Write-Host "Delete of VHDX failed." -ForegroundColor Red
+				WriteToLog -LogPath $LogDirPath -TextValue "User profile disk $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx was not found" -WriteError $true
+				Write-Host "User profile disk $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx was not found" -ForegroundColor Red
 			}
 		}
-		else
-		{
-			WriteToLog -LogPath $LogDirPath -TextValue "User profile disk $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx was not found" -WriteError $true
-			Write-Host "User profile disk $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx was not found" -ForegroundColor Red
-		}
-    }
+	}
 
 	#endregion
 }
