@@ -56,7 +56,7 @@ Function WriteToLog
 
 Try
 {
-	$ConfigParamters = Import-Csv -Path $ConfigParameterCSV -Delimiter ";"
+	#$ConfigParamters = Import-Csv -Path $ConfigParameterCSV -Delimiter ";"
 
 	#region compose selection menu to select correct collection
 	#ask for the correct collection. Each RDS collection has its own dedicated RDS share path to store UPD disks
@@ -89,6 +89,7 @@ Try
     }
 
     $RDSCollection = $SelectionMenu.Item($selectedMenuItem)
+	$RDSCollectionUPDShareRootPath = ($RDSCollection | Get-RDSessionCollectionConfiguration -ConnectionBroker $RDSConnectionBrokerFQDN -UserProfileDisk).DiskPath
 	#endregion
 
 	#region ask local admin credentials for RDS session hosts
@@ -116,56 +117,80 @@ Try
 	#region delete registry keys on RDS servers of selected RDS collection
 	if ($aduser)
 	{
-		$RDSSessionHosts = Get-RDSessionCollection $RDSCollection.RDSCollectionName -ConnectionBroker $RDSCollection.ConnectionBroker | Get-RDSessionHost -ConnectionBroker $RDSCollection.ConnectionBroker
+		$RDSSessionHosts = $RDSCollection | Get-RDSessionHost -ConnectionBroker $RDSConnectionBrokerFQDN
 
 		$ScriptBlockRemoteRegistry = {
 			param
 			(
-				[string]$userSID
+				[string]$userSID,
+				[string]$RDSSessionHost
 			)
 
 			$RegKeys = @()
-			$ProfileListKey = Get-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$userSID*" 
-			$ProfileGUIDKey = (Get-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileGuid\*" | Get-ItemProperty | ? SidString -eq $userSID).PSPath
+			$ProfileListKey = Get-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$userSID*" -ErrorAction SilentlyContinue
+			$ProfileGUIDKeyRoot = Get-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileGuid\*"
+			$ProfileGUIDKey = $ProfileGUIDKeyRoot | Get-ItemProperty -ErrorAction SilentlyContinue | ? SidString -eq $userSID.PSPath
 			
 
 			Write-Verbose "`nStart deleting following registry keys:"
 			Write-Verbose "Deleting key $ProfileListKey ..."
-			$ProfileListKey | Remove-Item -Recurse
-			if (!(Test-Path -Path $ProfileListKey))
+
+			if ($ProfileListKey)
 			{
-				Write-Verbose "Delete action of registry key $ProfileListKey was successful"
+				$ProfileListKey | Remove-Item -Recurse
+				if (!(Test-Path -Path $ProfileListKey -ErrorAction SilentlyContinue))
+				{
+					Write-Verbose "Delete action of registry key $ProfileListKey was successful"
+				}
+				else
+				{
+					Write-Verbose "Delete action of registry key $ProfileListKey failed"
+				}
 			}
 			else
 			{
-				Write-Verbose "Delete action of registry key $ProfileListKey failed"
+				Write-Host "No ProfileListKey was found for the specified user account on RDS session host $RDSSessionHost" -ForegroundColor Green
 			}
 
 			Write-Verbose "Deleting key $ProfileGUIDKey ..."
-			$ProfileGUIDKey | Remove-Item -Recurse
-			if (!(Test-Path -Path $ProfileGUIDKey))
+
+			if ($ProfileGUIDKey)
 			{
-				Write-Verbose "Delete action of registry key $ProfileGUIDKey was successful"
+				$ProfileGUIDKey | Remove-Item -Recurse
+				if (!(Test-Path -Path $ProfileGUIDKey -ErrorAction SilentlyContinue))
+				{
+					Write-Verbose "Delete action of registry key $ProfileGUIDKey was successful"
+				}
+				else
+				{
+					Write-Verbose "Delete action of registry key $ProfileGUIDKey failed"
+				}
 			}
 			else
 			{
-				Write-Verbose "Delete action of registry key $ProfileGUIDKey failed"
+				Write-Host "No ProfileGUIDKey was found for the specified user account on RDS session host $RDSSessionHost" -ForegroundColor Green
 			}
 
 			$RegKeys += $ProfileListKey
 			$RegKeys += $ProfileGUIDKey
 
-			Write-Host "Profile registry keys deleted" -ForegroundColor Green
 			Return $RegKeys
 		}
 
 		Foreach ($RDSSessionHost in $RDSSessionHosts)
 		{
-			$RegKeysFound = Invoke-Command -ComputerName $RDSSessionHost.SessionHost -ScriptBlock $ScriptBlockRemoteRegistry -ArgumentList $aduser.SID, $LogDirPath
+			$RegKeysFound = Invoke-Command -ComputerName $RDSSessionHost.SessionHost -ScriptBlock $ScriptBlockRemoteRegistry -ArgumentList $aduser.SID,$RDSSessionHost.Sessionhost -Verbose
 
 			foreach ($regKey in $RegKeysFound)
 			{
-				WriteToLog -LogPath $LogDirPath -TextValue "Following registry key was deleted on RDS session host $($RDSSessionHost.SessionHost): $regKey" -WriteError $false
+				if ($regKey -ne $null)
+				{
+					WriteToLog -LogPath $LogDirPath -TextValue "Following registry key was deleted on RDS session host $($RDSSessionHost.SessionHost): $regKey" -WriteError $false
+				}
+				else
+				{
+					WriteToLog -LogPath $LogDirPath -TextValue "Registry key was null" -WriteError $true
+				}
 			}
 		}
 	}
@@ -175,8 +200,8 @@ Try
 	if (!$OnlyDeleteBakRegistryProfileKeys)
     {
         #delete corresponding user profile disk
-		Write-Host "Following UPD will be deleted: $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx" -ForegroundColor Green
-		$diskPath = "$($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx"
+		Write-Host "Following UPD will be deleted: $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx" -ForegroundColor Green
+		$diskPath = "$RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx"
 
 		#discover whether UPDs are still mounted on RDS session hosts of the selected collection
 		#if still mounted, but no user profile directory is associated as mount point, these disks can be dismounted
@@ -220,24 +245,24 @@ Try
 		#delete the VHDX on the file server
 		Write-Verbose "Deleting the VHDX file of the UPD ..."
 		
-		if ($diskItem = Get-Item -Path "$($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx" -ErrorAction SilentlyContinue)
+		if ($diskItem = Get-Item -Path "$RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx" -ErrorAction SilentlyContinue)
 		{
 			Remove-Item $diskItem -ErrorAction SilentlyContinue
 			if(!(Test-Path $diskItem))
 			{
-				WriteToLog -LogPath $LogDirPath -TextValue "VHDX $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx successfully deleted." -WriteError $false
+				WriteToLog -LogPath $LogDirPath -TextValue "VHDX $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx successfully deleted." -WriteError $false
 				Write-Host "Successfully deleted VHDX" -ForegroundColor Green
 			}
 			else
 			{
-				WriteToLog -LogPath $LogDirPath -TextValue "Delete of VHDX $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx failed." -WriteError $true
+				WriteToLog -LogPath $LogDirPath -TextValue "Delete of VHDX $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx failed." -WriteError $true
 				Write-Host "Delete of VHDX failed." -ForegroundColor Red
 			}
 		}
 		else
 		{
-			WriteToLog -LogPath $LogDirPath -TextValue "User profile disk $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx was not found" -WriteError $true
-			Write-Host "User profile disk $($RDSCollection.CollectionUPDSharePath)\UVHD-$($aduser.SID).vhdx was not found" -ForegroundColor Red
+			WriteToLog -LogPath $LogDirPath -TextValue "User profile disk $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx was not found" -WriteError $true
+			Write-Host "User profile disk $RDSCollectionUPDShareRootPath\UVHD-$($aduser.SID).vhdx was not found" -ForegroundColor Red
 		}
     }
 
