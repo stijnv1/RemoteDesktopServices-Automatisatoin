@@ -129,16 +129,16 @@ Try
 				$ProfileListKey | Remove-Item -Recurse
 				if (!(Test-Path -Path $ProfileListKey -ErrorAction SilentlyContinue))
 				{
-					Write-Host "Delete action of registry key $ProfileListKey was successful on RDS session host $RDSSessoinHost" -ForegroundColor Green
+					Write-Host "Delete action of registry key $ProfileListKey was successful on RDS session host $RDSSessoinHost.SessionHost" -ForegroundColor Green
 				}
 				else
 				{
-					Write-Host "Delete action of registry key $ProfileListKey failed on RDS session host $RDSSessoinHost" -ForegroundColor Red
+					Write-Host "Delete action of registry key $ProfileListKey failed on RDS session host $RDSSessoinHost.SessionHost" -ForegroundColor Red
 				}
 			}
 			else
 			{
-				Write-Host "No ProfileListKey was found for the specified user account on RDS session host $RDSSessionHost" -ForegroundColor Green
+				Write-Host "No ProfileListKey was found for the specified user account on RDS session host $RDSSessionHost.SessionHost" -ForegroundColor Green
 			}
 
 			Write-Verbose "Deleting key $ProfileGUIDKey ..."
@@ -148,16 +148,16 @@ Try
 				$ProfileGUIDKey | Remove-Item -Recurse
 				if (!(Test-Path -Path $ProfileGUIDKey -ErrorAction SilentlyContinue))
 				{
-					Write-Host "Delete action of registry key $ProfileGUIDKey was successful on RDS session host $RDSSessoinHost" -ForegroundColor Green
+					Write-Host "Delete action of registry key $ProfileGUIDKey was successful on RDS session host $RDSSessoinHost.SessionHost" -ForegroundColor Green
 				}
 				else
 				{
-					Write-Host "Delete action of registry key $ProfileGUIDKey failed on RDS session host $RDSSessoinHost" -ForegroundColor Red
+					Write-Host "Delete action of registry key $ProfileGUIDKey failed on RDS session host $RDSSessoinHost.SessionHost" -ForegroundColor Red
 				}
 			}
 			else
 			{
-				Write-Host "No ProfileGUIDKey was found for the specified user account on RDS session host $RDSSessionHost" -ForegroundColor Green
+				Write-Host "No ProfileGUIDKey was found for the specified user account on RDS session host $RDSSessionHost.SessionHost" -ForegroundColor Green
 			}
 
 			$RegKeys += $ProfileListKey
