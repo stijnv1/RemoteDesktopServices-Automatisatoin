@@ -129,11 +129,11 @@ Try
 				$ProfileListKey | Remove-Item -Recurse
 				if (!(Test-Path -Path $ProfileListKey -ErrorAction SilentlyContinue))
 				{
-					Write-Verbose "Delete action of registry key $ProfileListKey was successful"
+					Write-Host "Delete action of registry key $ProfileListKey was successful on RDS session host $RDSSessoinHost" -ForegroundColor Green
 				}
 				else
 				{
-					Write-Verbose "Delete action of registry key $ProfileListKey failed"
+					Write-Host "Delete action of registry key $ProfileListKey failed on RDS session host $RDSSessoinHost" -ForegroundColor Red
 				}
 			}
 			else
@@ -148,11 +148,11 @@ Try
 				$ProfileGUIDKey | Remove-Item -Recurse
 				if (!(Test-Path -Path $ProfileGUIDKey -ErrorAction SilentlyContinue))
 				{
-					Write-Verbose "Delete action of registry key $ProfileGUIDKey was successful"
+					Write-Host "Delete action of registry key $ProfileGUIDKey was successful on RDS session host $RDSSessoinHost" -ForegroundColor Green
 				}
 				else
 				{
-					Write-Verbose "Delete action of registry key $ProfileGUIDKey failed"
+					Write-Host "Delete action of registry key $ProfileGUIDKey failed on RDS session host $RDSSessoinHost" -ForegroundColor Red
 				}
 			}
 			else
